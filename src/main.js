@@ -4,15 +4,41 @@ import { files } from './files';
 import { Terminal } from '@xterm/xterm'
 import '@xterm/xterm/css/xterm.css';
 import { FitAddon } from '@xterm/addon-fit';
+import * as monaco from 'monaco-editor';
+import jsWorker from 'monaco-editor/esm/vs/language/typescript/ts.worker?worker';
+import editorWorker from 'monaco-editor/esm/vs/editor/editor.worker?worker';
 
 
 /** @type {import('@webcontainer/api').WebContainer}  */
 let webcontainerInstance;
 
+self.MonacoEnvironment = {
+  getWorker: function (workerId, label) {
+      switch (label) {
+          case 'typescript':
+          case 'javascript':
+              return jsWorker();
+          default:
+              return editorWorker();
+      }
+  }
+};
+
+
+const editor = monaco.editor.create(document.getElementById('editor'), {
+	value: 'module Main\n\nprint ("Hello, Grain!")',
+	language: 'grain'
+});
+
 /** @param {string} content*/
 
 async function writeIndexJS(content) {
   await webcontainerInstance.fs.writeFile('/main.gr', content);
+};
+
+
+async function writeMainGrain() {
+  await webcontainerInstance.fs.writeFile('/main.gr', editor.getValue());
 };
 
 /**
@@ -45,9 +71,9 @@ async function startDevServer(terminal) {
   }));
 
   // Wait for `server-ready` event
-  webcontainerInstance.on('server-ready', (port, url) => {
-    iframeEl.src = url;
-  });
+  // webcontainerInstance.on('server-ready', (port, url) => {
+  //   iframeEl.src = url;
+  // });
 }
 
 /**
@@ -79,6 +105,8 @@ async function startShell(terminal) {
 
 async function compileAndRun() {
 
+  writeMainGrain();
+
   let output="Compiling...";
 
   console.log("compiling");
@@ -87,35 +115,49 @@ async function compileAndRun() {
 
   const compileProcess = await webcontainerInstance.spawn('node', ['./bin/grainc.js','--stdlib', './node_modules/@grain/stdlib', 'main.gr']);
 
+  let compilerOutput = "";
+
   compileProcess.output.pipeTo(new WritableStream({
     write(data) {
       console.log(data);
+      compilerOutput = compilerOutput + data;
     }
   }));
 
-  await compileProcess.exit;
+  const compilerRes =await compileProcess.exit;
+  console.log(compilerRes);
 
-  output = "";
+  console.log("compilerOutput",compilerOutput);
 
-  const runProcess = await webcontainerInstance.spawn('wasm', [ 'main.wasm']);
 
-  runProcess.output.pipeTo(new WritableStream({
-    write(data) {
-      console.log(data);
-      output = output + data;
-      iframeEl.value = output;
-    }
-  }));
+  if (compilerRes === 0) {
+
+
+    output = "";
+
+    const runProcess = await webcontainerInstance.spawn('wasm', [ 'main.wasm']);
+
+    runProcess.output.pipeTo(new WritableStream({
+      write(data) {
+        console.log(data);
+        output = output + data;
+        iframeEl.value = output;
+      }
+    }));
+  } else {
+    output = compilerOutput;
+    iframeEl.value = compilerOutput;
+  }
 
 }
 
 
 window.addEventListener('load', async () => {
-  textareaEl.value = files['main.gr'].file.contents;
+  // textareaEl.value = files['main.gr'].file.contents;
 
-  textareaEl.addEventListener('input', (e) => {
-    writeIndexJS(e.currentTarget.value);
-  });
+  // textareaEl.addEventListener('input', (e) => {
+  //   writeIndexJS(e.currentTarget.value);
+  // });
 
   const fitAddon = new FitAddon();
 
@@ -187,10 +229,11 @@ window.addEventListener('load', async () => {
 /** @type {HTMLIFrameElement | null} */
 const iframeEl = document.querySelector('#preview');
 
-/** @type {HTMLTextAreaElement | null} */
-const textareaEl = document.querySelector('#editortext');
+// /** @type {HTMLTextAreaElement | null} */
+// const textareaEl = document.querySelector('#editortext');
 
 /** @type {HTMLTextAreaElement | null} */
 const terminalEl = document.querySelector('.terminal');
 
 document.querySelector('#compilebutton').addEventListener("click", compileAndRun)
+
