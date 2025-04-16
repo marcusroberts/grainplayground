@@ -1,4 +1,6 @@
 import { defineConfig } from 'vite';
+import { viteStaticCopy } from 'vite-plugin-static-copy'
+
 
 export default defineConfig({
   server: {
@@ -7,4 +9,15 @@ export default defineConfig({
       'Cross-Origin-Opener-Policy': 'same-origin',
     },
   },
+  plugins: [
+    viteStaticCopy({
+      targets: [
+        {
+          src: 'public/snap.bin',
+          dest: ''
+        }
+      ]
+    })
+  ]
 });
+
